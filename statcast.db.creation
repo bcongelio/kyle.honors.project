@@ -1,0 +1,57 @@
+##loading required libraries
+library(baseballr)
+library(tidyverse)
+library(DBI)
+library(RPostgreSQL)
+
+##switching to the correct working directory
+setwd("C:/Users/Brad/Desktop/savantdata")
+
+##making a connection to the baseball.db datatable in new directory
+connection <- dbConnect(RSQLite::SQLite(), "baseball.db")
+
+##testing 2008 season
+payload_statcast <- annual_statcast_query(2008)
+
+##formating into statcast format
+df <- format_append_statcast(df = payload_statcast)
+
+##physically writing 2008 statcast data into datatable
+dbWriteTable(connection, "statcast", df, overwrite = TRUE)
+
+##testing ability to connect directly to new datatable
+tbl(connection, "statcast") %>%
+  filter(game_year == 2008) %>%
+  count()
+  
+##SUCCESS!
+
+##################################
+
+##writing of function to map over all remaining seasons
+map(.x = seq(2009, 2021, 1), 
+    ~{payload_statcast <- annual_statcast_query(season = .x)
+    
+    message(paste0('Formatting payload for ', .x, '...'))
+    
+    df <- format_append_statcast(df = payload_statcast)
+    
+    message(paste0('Deleting and uploading ', .x, ' data to database...'))
+    
+    delete_and_upload(df,
+                      year = .x,
+                      db_driver = "PostgreSQL")
+    
+    dbWriteTable(connection, "statcast", df, overwrite = TRUE)
+    
+    dbGetQuery(df, 'select game_year, count(game_year) from statcast group by game_year')
+    
+    message('Sleeping and collecting garbage...')
+    
+    ##forcing a system rest between seasons to not overwhelm baseballsavant
+    Sys.sleep(5*60)
+    
+    ##cleaning garbage from CPU's physical RAM
+    gc()
+    
+    })
