@@ -1,0 +1,25 @@
+## merging baseballsavant data into one DF
+savant.data <- rbind(savant_2015, savant_2016, savant_2017,
+                     savant_2018, savant_2019, savant_2020, savant_2021)
+
+## we need to get player ages included in the data.
+## unfortunately baseballsavant player id does not match other data that include birthyear
+## to correct this, we will use the chadwick register to find the correct matches
+
+## reading in the chadwick register csv file
+urlfile <- 'https://raw.githubusercontent.com/chadwickbureau/register/master/data/people.csv'
+chadwick <- read.csv(url(urlfile))
+
+## selecting just the two variables we will needed to merge
+## key_mlbam to match the player_id from baseballsavant
+## birth_year to calcuate the age of the player for each season in our combined data
+chadwick <- chadwick %>%
+  select(key_mlbam, birth_year)
+
+## now merging the dataframes
+savant.data <- savant.data %>%
+  left_join(chadwick, by = c("player_id" = "key_mlbam")) ## say a hail mary ... because it worked
+
+## creating a new age columb within our combined savant data
+## simply taking the season year of the datapoint and then substracting the birth year we now have from the merge
+savant.data$player.age <- savant.data$year - savant.data$birth_year
