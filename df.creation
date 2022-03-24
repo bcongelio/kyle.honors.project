@@ -1,3 +1,7 @@
+##################
+## DATA COLLECTION AND PREP
+##################
+
 ## merging baseballsavant data into one DF
 savant.data <- rbind(savant_2015, savant_2016, savant_2017,
                      savant_2018, savant_2019, savant_2020, savant_2021)
@@ -23,3 +27,7 @@ savant.data <- savant.data %>%
 ## creating a new age columb within our combined savant data
 ## simply taking the season year of the datapoint and then substracting the birth year we now have from the merge
 savant.data$player.age <- savant.data$year - savant.data$birth_year
+
+##################
+## MODEL CREATION
+##################
