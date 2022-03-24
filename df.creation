@@ -31,3 +31,19 @@ savant.data$player.age <- savant.data$year - savant.data$birth_year
 ##################
 ## MODEL CREATION
 ##################
+
+
+
+
+##################
+## TESTING SOME RANDOM DATA VIZ
+##################
+
+ggplot(data = savant.data, aes(x = woba, y = xwoba)) +
+  geom_point(size = savant.data$player.age / 10)
+
+savant.data %>%
+  mutate(difference = xwoba - woba) %>%
+  ggplot(aes(x = abs, y = difference)) +
+  geom_point() +
+  scale_x_continuous()
