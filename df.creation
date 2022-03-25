@@ -47,3 +47,19 @@ savant.data %>%
   ggplot(aes(x = abs, y = difference)) +
   geom_point() +
   scale_x_continuous()
+  
+  
+  
+  
+  summary(savant.data$player.age)
+
+savant.data <- savant.data %>%
+  mutate(
+    age.quant = case_when(
+      player.age > 0 & player.age <= 25 ~ 1,
+      player.age >= 26 & player.age <= 27 ~ 2,
+      player.age >= 28 & player.age <= 31 ~ 3,
+      player.age >= 32 ~4))
+
+ggplot(data = savant.data, aes(x = woba, y = xwoba)) +
+  geom_point(color = savant.data$age.quant)
