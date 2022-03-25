@@ -63,3 +63,41 @@ savant.data <- savant.data %>%
 
 ggplot(data = savant.data, aes(x = woba, y = xwoba)) +
   geom_point(color = savant.data$age.quant)
+  
+  
+  
+  
+  ====
+  
+  
+  complete.data <- rbind(savant_2016, savant_2017, savant_2018, 
+                       savant_2019, savant_2020, savant_2021)
+
+for.merge <- savant.data %>%
+  select(player_name, player_id, woba, xwoba)
+
+please.pray <- complete.data %>%
+  group_by(batter, game_year) %>%
+  summarize(change.run.ex = mean(delta_run_exp, na.rm = T))
+
+testing <- left_join(for.merge, please.pray, by = c("player_id" = "batter"))
+
+testing <- testing %>%
+  left_join(chadwick, by = c("player_id" = "key_mlbam"))
+
+testing$player.age <- testing$game_year - testing$birth_year
+
+testing <- testing %>%
+  mutate(
+    age.quant = case_when(
+      player.age > 0 & player.age <= 25 ~ 1,
+      player.age >= 26 & player.age <= 27 ~ 2,
+      player.age >= 28 & player.age <= 31 ~ 3,
+      player.age >= 32 ~4))
+
+ggplot(data = testing, aes(x = woba, y = xwoba)) +
+  geom_point(aes(color = age.quant), size = testing$change.run.ex * 10) +
+  geom_smooth(se = FALSE) +
+  geom_text_repel(data = filter(testing, change.run.ex >= .5),
+                  aes(label = player_name))
+
