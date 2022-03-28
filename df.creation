@@ -1,10 +1,21 @@
+## loading required packages
+library(tidyverse)
+library(ranger)
+library(nflfastR)
+library(ggthemes)
+library(vip)
+
 ##################
 ## DATA COLLECTION AND PREP
 ##################
 
-## merging baseballsavant data into one DF
-savant.data <- rbind(savant_2015, savant_2016, savant_2017,
-                     savant_2018, savant_2019, savant_2020, savant_2021)
+## merging pre-aggregated baseballsavant data into one DF
+savant.data <- rbind(savant_agg1, savant_agg2, savant_agg3, savant_agg4)
+
+## merging pitch-by-pitch baseballsavant data into one DF
+complete.data <- rbind(savant_20102008, savant_2011, savant_2012, savant_2013,
+                       savant_2014, savant_2015, savant_2016, savant_2017, savant_2018,
+                       savant_2019, savant_2020, savant_2021)
 
 ## we need to get player ages included in the data.
 ## unfortunately baseballsavant player id does not match other data that include birthyear
@@ -21,83 +32,141 @@ chadwick <- chadwick %>%
   select(key_mlbam, birth_year)
 
 ## now merging the dataframes
-savant.data <- savant.data %>%
-  left_join(chadwick, by = c("player_id" = "key_mlbam")) ## say a hail mary ... because it worked
+complete.data <- complete.data %>%
+  left_join(chadwick, by = c("batter" = "key_mlbam")) ## say a hail mary ... because it worked
 
-## creating a new age columb within our combined savant data
+## creating a new age column within our combined savant data
 ## simply taking the season year of the datapoint and then substracting the birth year we now have from the merge
-savant.data$player.age <- savant.data$year - savant.data$birth_year
-
-##################
-## MODEL CREATION
-##################
-
-
+complete.data$player.age <- complete.data$game_year - complete.data$birth_year
 
 
 ##################
-## TESTING SOME RANDOM DATA VIZ
+## DATA EXPLORATION
 ##################
 
 ggplot(data = savant.data, aes(x = woba, y = xwoba)) +
   geom_point(size = savant.data$player.age / 10)
 
 savant.data %>%
-  mutate(difference = xwoba - woba) %>%
-  ggplot(aes(x = abs, y = difference)) +
+  ggplot(aes(x = woba, y = xwoba)) +
   geom_point() +
   scale_x_continuous()
-  
-  
-  
-  
-  summary(savant.data$player.age)
 
-savant.data <- savant.data %>%
-  mutate(
-    age.quant = case_when(
-      player.age > 0 & player.age <= 25 ~ 1,
-      player.age >= 26 & player.age <= 27 ~ 2,
-      player.age >= 28 & player.age <= 31 ~ 3,
-      player.age >= 32 ~4))
 
-ggplot(data = savant.data, aes(x = woba, y = xwoba)) +
-  geom_point(color = savant.data$age.quant)
-  
-  
-  
-  
-  ====
-  
-  
-  complete.data <- rbind(savant_2016, savant_2017, savant_2018, 
-                       savant_2019, savant_2020, savant_2021)
+complete.data %>%
+  ggplot(aes(plate_x, plate_z, z = delta_run_exp)) +
+  stat_summary_hex(alpha = 0.8, bins = 25) +
+  scale_fill_viridis_c() +
+  labs(fill = "Expected Runs Added")
 
-for.merge <- savant.data %>%
-  select(player_name, player_id, woba, xwoba)
+##################
+## MODEL CREATION
+##################
 
-please.pray <- complete.data %>%
-  group_by(batter, game_year) %>%
-  summarize(change.run.ex = mean(delta_run_exp, na.rm = T))
 
-testing <- left_join(for.merge, please.pray, by = c("player_id" = "batter"))
+######
+## over expected model
+######
 
-testing <- testing %>%
-  left_join(chadwick, by = c("player_id" = "key_mlbam"))
+cleaned.data <- complete.data %>%
+  filter(!is.na(delta_run_exp)) %>%
+  filter(!is.na(release_speed))
 
-testing$player.age <- testing$game_year - testing$birth_year
+run_exp_model <- cleaned.data %>%
+  mutate(positive.run.exp = ifelse(delta_run_exp > 0, 1, 0))
 
-testing <- testing %>%
-  mutate(
-    age.quant = case_when(
-      player.age > 0 & player.age <= 25 ~ 1,
-      player.age >= 26 & player.age <= 27 ~ 2,
-      player.age >= 28 & player.age <= 31 ~ 3,
-      player.age >= 32 ~4))
+## creating the logisitc regression model
+log_run.exp <- glm(positive.run.exp ~ release_speed,
+                   data = run_exp_model,
+                   family = "binomial")
 
-ggplot(data = testing, aes(x = woba, y = xwoba)) +
-  geom_point(aes(color = age.quant), size = testing$change.run.ex * 10) +
-  geom_smooth(se = FALSE) +
-  geom_text_repel(data = filter(testing, change.run.ex >= .5),
-                  aes(label = player_name))
+summary(log_run.exp)
+summary(log_run.exp$fitted.values)
 
+## plotting the prediction probabilities
+run_exp_model %>%
+  mutate(pred_prob = log_run.exp$fitted.values) %>%
+  ggplot(aes(x = release_speed)) +
+  geom_line(aes(y = pred_prob), color = "black", size = 2) +
+  geom_point(aes(y = positive.run.exp, 
+                 color = ifelse(positive.run.exp > 0, "darkgreen", "darkred")),
+             alpha = 0.3) +
+  scale_color_identity() +
+  theme_minimal() +
+  labs(x = "Pitch Release Speed",
+       y = "Predicted Chance for Positive Run Expectancy") +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 8)) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 8))
+
+
+## getting run expectancy over expected
+run_exp_model <- run_exp_model %>%
+  mutate(pred_prob = log_run.exp$fitted.values) %>%
+  mutate(run.oe = positive.run.exp - pred_prob)
+
+## attaching players to the over expected model
+run_oe_stats <- run_exp_model %>%
+  group_by(player_name) %>%
+  summarize(total = n(),
+            exp_run_perc = mean(pred_prob),
+            actual_run_perc = mean(positive.run.exp),
+            runs.oe = 100*mean(run.oe)) %>%
+  arrange(-runs.oe)
+
+## plotting players to the over expected model
+run_oe_stats %>%
+  filter(total >= 600) %>%
+  ggplot(aes(x = exp_run_perc, y = actual_run_perc)) +
+  geom_point(aes(size = total, fill = runs.oe), shape = 21, color = "black") +
+  scale_fill_viridis_c() +
+  ggrepel::geom_label_repel(aes(label = player_name), size = 2.5) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", size = 1.5, linetype = "dashed") +
+  theme_minimal() +
+  labs(x = "Expected Runs Created",
+       y = "Actual Runs Created") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 12)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 12)) +
+  guides(size = FALSE) +
+  theme(aspect.ratio =  9 / 16)
+
+
+######
+## feature importance
+######
+
+## cleaning any missing features
+run.exp.features <- cleaned.data %>%
+  filter(!is.na(player_name), !is.na(pitch_type), !is.na(release_speed), !is.na(release_pos_x),
+         !is.na(release_pos_z), !is.na(zone), !is.na(stand), !is.na(p_throws),
+         !is.na(balls), !is.na(strikes), !is.na(pfx_x), !is.na(pfx_z),
+         !is.na(outs_when_up), !is.na(inning), !is.na(delta_run_exp))
+
+## selecting just the feature inputs
+run.exp.features <- run.exp.features %>%
+  select(player_name, pitch_type, release_speed, release_pos_x, release_pos_z,
+         zone, stand, p_throws, balls, strikes, pfx_x, pfx_z, outs_when_up, 
+         inning, delta_run_exp)
+
+## creating the linear model
+run.exp.lm <- lm(delta_run_exp ~ release_speed + pitch_type + release_pos_x + release_pos_z +
+                   zone + stand + p_throws + balls + strikes + pfx_x + pfx_z + outs_when_up +
+                   inning, data = run.exp.features)
+
+## quick look at feature importance
+vip(run.exp.lm, num_features = 12) + theme_minimal()
+
+
+## creating predictions
+run.exp.preds <- data.frame(predict.lm(run.exp.lm, newdata = run.exp.features)) %>%
+  rename(exp.run = predict.lm.run.exp.lm..newdata...run.exp.features.)
+
+## joining models
+run.exp.projections <- cbind(run.exp.features, run.exp.preds)
+
+## putting together df
+run.exp.projections.table <- run.exp.projections %>%
+  mutate(run.oe = delta_run_exp - exp.run) %>%
+  group_by(player_name) %>%
+  summarize(total = n(),
+            avg.roe = mean(run.oe)) %>%
+  filter(total >= 600)
